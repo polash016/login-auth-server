@@ -84,10 +84,10 @@ async function run() {
       res.status(200).send({ message: "Registration successful" });
     });
 
-    // app.get("/users", async (req, res) => {
-    //   const result = await usersCollection.find().toArray();
-    //   res.send(result);
-    // });
+    app.get("/users", async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
 
     app.post("/login", async (req, res) => {
       const { email, password } = req.body;
