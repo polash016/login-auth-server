@@ -41,7 +41,7 @@ app.get("/", (req, res) => {
   res.send("Auth Running");
 });
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.bioniru.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -60,6 +60,7 @@ async function run() {
 
     const usersCollection = client.db("authDB").collection("users");
     const tokenCollection = client.db("authDB").collection("token");
+    const postCollection = client.db("authDB").collection("posts");
 
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
@@ -134,6 +135,80 @@ async function run() {
       await tokenCollection.deleteOne({ _id: resetToken._id });
 
       res.status(200).send({ message: "Password reset successful" });
+    });
+// get all the post
+    app.get("/posts", async (req, res) => {
+      const result = await postCollection.find().toArray();
+      res.send(result);
+    });
+    // add post
+    app.post("/posts", async (req, res) => {
+      const post = req.body;
+      const result = await postCollection.insertOne(post);
+      res.send(result);
+    });
+    // edit post
+    app.put("/posts/:id", async (req, res) => {
+      const id = req.params.id;
+      const updates = req.body;
+      const query = { _id: new ObjectId(id) };
+      const update = {
+        $set: updates,
+      };
+
+      const result = await postCollection.updateOne(query, update);
+      res.send(result);
+    });
+    // like post
+    app.post("/likes/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const post = await postCollection.findOne(query);
+      const isLiked = post.likes > 0;
+      const updated = isLiked
+        ? { $inc: { likes: -1 } }
+        : { $inc: { likes: 1 } };
+      const result = await postCollection.updateOne(query, updated);
+      res.send(result);
+    });
+// add comment
+    app.post("/comments/:id", async (req, res) => {
+      const id = req.params.id;
+      const text = req.body;
+      const comment = {
+        _id: new ObjectId(), 
+        text: text,
+      };
+      const query = { _id: new ObjectId(id) };
+      const update = {
+        $push: { comments: comment },
+      };
+
+      const result = await postCollection.updateOne(query, update);
+      res.send(result);
+    });
+    // update comment
+    app.patch("/comments/:postId/:commentId", async (req, res) => {
+      const postId = req.params.postId;
+      const commentId = req.params.commentId;
+      const comment = req.body;
+      const query = { _id: new ObjectId(postId), "comments._id": new ObjectId(commentId) };
+      const update = {
+        $set: {"comments.$.text": comment},
+      };
+      const result = await postCollection.updateOne(query, update);
+      res.send(result);
+    });
+    // delete comment
+    app.delete("/comments/:postId/:commentId", async (req, res) => {
+      const postId = req.params.postId;
+      const commentId = req.params.commentId;
+      const query = { _id: new ObjectId(postId) };
+      const update = {
+        $pull: { comments: { _id: new ObjectId(commentId) } },
+      };
+      const result = await postCollection.updateOne(query, update);
+      res.send(result);
     });
   } finally {
     // Ensures that the client will close when you finish/error
