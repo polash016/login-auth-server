@@ -144,20 +144,19 @@ async function run() {
     // add post
     app.post("/posts", async (req, res) => {
       const post = req.body;
-      const result = await postCollection.insertOne(post);
-      res.send(result);
+      await postCollection.insertOne(post);
+      res.status(200).send({ message: "Add Post successful" });
     });
     // edit post
     app.put("/posts/:id", async (req, res) => {
       const id = req.params.id;
-      const updates = req.body;
+      const updatedDoc = req.body;
       const query = { _id: new ObjectId(id) };
       const update = {
-        $set: updates,
+        $set: updatedDoc,
       };
-
-      const result = await postCollection.updateOne(query, update);
-      res.send(result);
+      await postCollection.updateOne(query, update);
+      res.status(200).send({ message: "Edit Post successful" });
     });
     // like post
     app.post("/likes/:id", async (req, res) => {
@@ -168,8 +167,8 @@ async function run() {
       const updated = isLiked
         ? { $inc: { likes: -1 } }
         : { $inc: { likes: 1 } };
-      const result = await postCollection.updateOne(query, updated);
-      res.send(result);
+       await postCollection.updateOne(query, updated);
+      res.status(200).send({ message: "Add Like successful" });
     });
 // add comment
     app.post("/comments/:id", async (req, res) => {
@@ -184,8 +183,8 @@ async function run() {
         $push: { comments: comment },
       };
 
-      const result = await postCollection.updateOne(query, update);
-      res.send(result);
+       await postCollection.updateOne(query, update);
+       res.status(200).send({ message: "Password reset successful" });
     });
     // update comment
     app.patch("/comments/:postId/:commentId", async (req, res) => {
