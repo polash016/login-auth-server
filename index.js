@@ -2,6 +2,9 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const bodyParser = require("body-parser");
 const nodemailer = require("nodemailer");
 const mg = require("nodemailer-mailgun-transport");
@@ -10,6 +13,44 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.json());
+
+const secretKey = process.env.SECRET_KEY;
+const iv = crypto.randomBytes(16);
+
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ error: true, message: "Unauthorized access" });
+  }
+  const token = authorization.split(" ")[1];
+
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res
+        .status(401)
+        .send({ error: true, message: "Unauthorized access" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
+
+const encryptEmail = (email, secretKey, iv) => {
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(secretKey), iv);
+  let encryptedEmail = cipher.update(email, 'utf8', 'hex');
+  encryptedEmail += cipher.final('hex');
+  return encryptedEmail;
+};
+
+const decryptEmail = (encryptedEmail, secretKey, iv) => {
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(secretKey), iv);
+  let decryptedEmail = decipher.update(encryptedEmail, 'hex', 'utf8');
+  decryptedEmail += decipher.final('utf8');
+  return decryptedEmail;
+};
+
 
 const auth = {
   auth: {
@@ -75,28 +116,34 @@ async function run() {
       if (existingUser) {
         return res.status(400).json({ message: "Email already registered" });
       }
-
+      const encryptedPass = await bcrypt.hash(password, 10);
+      const encryptedEmail = encryptEmail(email, secretKey, iv);
       await usersCollection.insertOne({
         name,
-        email,
-        password,
+        email: encryptedEmail,
+        password: encryptedPass,
       });
 
       res.status(200).send({ message: "Registration successful" });
     });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyJWT, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
 
-    app.post("/login", async (req, res) => {
+    app.post("/login", verifyJWT, async (req, res) => {
       const { email, password } = req.body;
       const user = await usersCollection.findOne({ email });
       if (!user) {
         return res.status(404).send({ message: "User not found" });
       }
-      if (user.password !== password) {
+      const decryptedEmail = decryptEmail(user.email, secretKey, iv);
+   if (email !== decryptedEmail) {
+     return res.status(401).send({ message: "Invalid email" });
+   }
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
         return res.status(401).send({ message: "Invalid password" });
       }
 
@@ -137,18 +184,18 @@ async function run() {
       res.status(200).send({ message: "Password reset successful" });
     });
 // get all the post
-    app.get("/posts", async (req, res) => {
+    app.get("/posts", verifyJWT, async (req, res) => {
       const result = await postCollection.find().toArray();
       res.send(result);
     });
     // add post
-    app.post("/posts", async (req, res) => {
+    app.post("/posts", verifyJWT, async (req, res) => {
       const post = req.body;
       await postCollection.insertOne(post);
-      res.status(200).send({ message: "Add Post successful" });
+      res.status(200).send({ message: "Added Post successfully" });
     });
     // edit post
-    app.put("/posts/:id", async (req, res) => {
+    app.put("/posts/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const updatedDoc = req.body;
       const query = { _id: new ObjectId(id) };
@@ -156,10 +203,10 @@ async function run() {
         $set: updatedDoc,
       };
       await postCollection.updateOne(query, update);
-      res.status(200).send({ message: "Edit Post successful" });
+      res.status(200).send({ message: "Edited Post successfully" });
     });
     // like post
-    app.post("/likes/:id", async (req, res) => {
+    app.post("/likes/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const post = await postCollection.findOne(query);
@@ -168,10 +215,10 @@ async function run() {
         ? { $inc: { likes: -1 } }
         : { $inc: { likes: 1 } };
        await postCollection.updateOne(query, updated);
-      res.status(200).send({ message: "Add Like successful" });
+      res.status(200).send({ message: "Increased/Decreased Like successfully" });
     });
 // add comment
-    app.post("/comments/:id", async (req, res) => {
+    app.post("/comments/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const text = req.body;
       const comment = {
@@ -184,10 +231,10 @@ async function run() {
       };
 
        await postCollection.updateOne(query, update);
-       res.status(200).send({ message: "Password reset successful" });
+       res.status(200).send({ message: "Added Comment successfully" });
     });
     // update comment
-    app.patch("/comments/:postId/:commentId", async (req, res) => {
+    app.patch("/comments/:postId/:commentId", verifyJWT, async (req, res) => {
       const postId = req.params.postId;
       const commentId = req.params.commentId;
       const comment = req.body;
@@ -195,11 +242,11 @@ async function run() {
       const update = {
         $set: {"comments.$.text": comment},
       };
-      const result = await postCollection.updateOne(query, update);
-      res.send(result);
+      await postCollection.updateOne(query, update);
+      res.status(200).send({ message: "Updated Comment successfully" });
     });
     // delete comment
-    app.delete("/comments/:postId/:commentId", async (req, res) => {
+    app.delete("/comments/:postId/:commentId", verifyJWT, async (req, res) => {
       const postId = req.params.postId;
       const commentId = req.params.commentId;
       const query = { _id: new ObjectId(postId) };
@@ -207,7 +254,7 @@ async function run() {
         $pull: { comments: { _id: new ObjectId(commentId) } },
       };
       const result = await postCollection.updateOne(query, update);
-      res.send(result);
+      res.status(200).send({ message: "Deleted Comment successfully" });
     });
   } finally {
     // Ensures that the client will close when you finish/error
